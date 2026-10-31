@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { LayoutDashboard, Users, PhoneCall, FolderKanban, MapPin, FileText, BarChart3, Settings as Cog } from 'lucide-react'
+import { LayoutDashboard, Users, PhoneCall, FolderKanban, MapPin, FileText, BarChart3, Settings as Cog, LogOut, Check, Loader2, AlertCircle } from 'lucide-react'
+import { supabase } from './supabase.js'
 import { useStore, today } from './store.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Leads from './pages/Leads.jsx'
@@ -27,7 +28,7 @@ export default function App() {
   const [page, setPage] = useState('dashboard')
   const [openLead, setOpenLead] = useState(null)
   const [docIntent, setDocIntent] = useState(null)
-  const { leads, settings } = useStore()
+  const { leads, settings, user, syncState, retrySync } = useStore()
 
   const counts = {
     leads: leads.length,
@@ -60,7 +61,13 @@ export default function App() {
             {counts[id] ? <span className="count">{counts[id]}</span> : null}
           </button>
         ))}
-        <div className="side-foot">Data is saved in this browser. Back it up from Settings.</div>
+        <div className="side-user">
+          <div className="em" title={user.email}>{user.user_metadata?.full_name || user.email}</div>
+          {syncState === 'error'
+            ? <button className="sync error" onClick={retrySync}><AlertCircle size={12} /> Not saved, retry</button>
+            : <span className="sync">{syncState === 'saving' ? <Loader2 size={12} className="spin" /> : <Check size={12} />}{syncState === 'saving' ? 'Saving…' : 'All changes saved'}</span>}
+          <button className="btn sm ghost" style={{ justifyContent: 'flex-start', paddingLeft: 0 }} onClick={() => supabase.auth.signOut()}><LogOut size={13} /> Sign out</button>
+        </div>
       </aside>
       <main className="main">
         <AnimatePresence mode="wait">

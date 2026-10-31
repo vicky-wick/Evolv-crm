@@ -5,7 +5,7 @@ import { Page, useToast } from '../components/ui.jsx'
 
 export default function Settings() {
   const store = useStore()
-  const { settings, updateSettings, replaceAll } = store
+  const { settings, updateSettings, replaceAll, legacy, importLegacy } = store
   const toast = useToast()
   const fileRef = useRef()
 
@@ -52,18 +52,24 @@ export default function Settings() {
           <h3>Integrations</h3>
           {f('placesKey', 'Google Places API (New) key', { type: 'password', placeholder: 'AIza…', autoComplete: 'off' })}
           <div className="note" style={{ marginTop: 10 }}>
-            Used by Business Finder. Stored only in this browser. Restrict the key to <b>Places API (New)</b> and your domain in Google Cloud Console. Text Search is billed per request by Google.
+            Used by Business Finder. Stored privately in your account. Restrict the key to <b>Places API (New)</b> and your domain in Google Cloud Console. Text Search is billed per request by Google.
           </div>
         </div>
 
         <div className="card pad">
           <h3>Data & backup</h3>
-          <p style={{ color: 'var(--muted)', marginTop: 0 }}>All data lives in this browser's local storage. Download a backup regularly.</p>
+          <p style={{ color: 'var(--muted)', marginTop: 0 }}>Your data is stored in your account and synced across devices. You can still download a JSON backup any time.</p>
           <div className="row">
             <button className="btn" onClick={() => download(`evolv-crm-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ leads: store.leads, docs: store.docs, settings }, null, 2), 'application/json')}><Download size={14} /> Download backup</button>
             <input ref={fileRef} type="file" accept=".json" hidden onChange={restore} />
             <button className="btn" onClick={() => fileRef.current.click()}><Upload size={14} /> Restore backup</button>
           </div>
+          {legacy && (
+            <div className="note row" style={{ marginTop: 12, justifyContent: 'space-between' }}>
+              <span>Found {legacy.leads?.length || 0} leads and {legacy.docs?.length || 0} documents saved in this browser by the old version.</span>
+              <button className="btn sm" onClick={() => { importLegacy(); toast('Imported into your account') }}>Import to account</button>
+            </div>
+          )}
         </div>
       </div>
     </Page>

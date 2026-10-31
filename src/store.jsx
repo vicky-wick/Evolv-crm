@@ -1,4 +1,6 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
+import { Loader2 } from 'lucide-react'
+import { supabase } from './supabase.js'
 
 const KEY = 'evolv-crm-v1'
 
@@ -61,25 +63,95 @@ const defaults = {
   },
 }
 
-function load() {
-  try {
-    const raw = localStorage.getItem(KEY)
-    if (!raw) return defaults
-    const d = JSON.parse(raw)
-    return { ...defaults, ...d, settings: { ...defaults.settings, ...d.settings } }
-  } catch {
-    return defaults
+const LEGACY_KEY = KEY
+
+const toLeadRow = (l) => ({
+  id: l.id, name: l.name || '', contact: l.contact || '', phone: l.phone || '', email: l.email || '',
+  website: l.website || '', address: l.address || '', category: l.category || '', source: l.source || 'Other',
+  stage: l.stage || 'New', value: Number(l.value) || 0, notes: l.notes || '', called: !!l.called,
+  followed_up: !!l.followedUp, next_follow_up: l.nextFollowUp || null, activities: l.activities || [],
+  project: l.project || null, created_at: l.createdAt || new Date().toISOString(),
+})
+const fromLeadRow = (r) => newLead({
+  id: r.id, name: r.name, contact: r.contact, phone: r.phone, email: r.email, website: r.website,
+  address: r.address, category: r.category, source: r.source, stage: r.stage, value: Number(r.value),
+  notes: r.notes, called: r.called, followedUp: r.followed_up, nextFollowUp: r.next_follow_up || '',
+  activities: r.activities || [], project: r.project, createdAt: r.created_at,
+})
+const toDocRow = (d) => ({ id: d.id, type: d.type, number: d.number, lead_id: d.leadId || null, data: d })
+
+// Push every lead/doc whose object identity changed since the last sync, delete the ones that disappeared.
+async function sync(prev, next) {
+  const changed = (a, b) => {
+    const old = new Map(a.map((x) => [x.id, x]))
+    const ids = new Set(b.map((x) => x.id))
+    return { up: b.filter((x) => old.get(x.id) !== x), del: a.filter((x) => !ids.has(x.id)).map((x) => x.id) }
   }
+  const L = changed(prev.leads, next.leads)
+  const D = changed(prev.docs, next.docs)
+  const ops = []
+  if (L.up.length) ops.push(supabase.from('leads').upsert(L.up.map(toLeadRow)))
+  if (L.del.length) ops.push(supabase.from('leads').delete().in('id', L.del))
+  if (D.up.length) ops.push(supabase.from('documents').upsert(D.up.map(toDocRow)))
+  if (D.del.length) ops.push(supabase.from('documents').delete().in('id', D.del))
+  if (prev.settings !== next.settings) ops.push(supabase.from('settings').upsert({ user_id: next.userId, data: next.settings }))
+  const errs = (await Promise.all(ops)).map((r) => r.error).filter(Boolean)
+  if (errs.length) throw errs[0]
 }
 
 const Ctx = createContext(null)
 
-export function StoreProvider({ children }) {
-  const [state, setState] = useState(load)
+export function StoreProvider({ user, children }) {
+  const [state, setState] = useState(null)
+  const [syncState, setSyncState] = useState('saved')
+  const synced = useRef(null)
+  const timer = useRef()
 
   useEffect(() => {
-    try { localStorage.setItem(KEY, JSON.stringify(state)) } catch {}
+    let live = true
+    ;(async () => {
+      const [l, d, s] = await Promise.all([
+        supabase.from('leads').select('*').order('created_at', { ascending: false }),
+        supabase.from('documents').select('data').order('created_at', { ascending: false }),
+        supabase.from('settings').select('data').maybeSingle(),
+      ])
+      if (!live) return
+      const err = l.error || d.error || s.error
+      if (err) { setState({ error: err.message }); return }
+      const loaded = {
+        userId: user.id,
+        leads: l.data.map(fromLeadRow),
+        docs: d.data.map((r) => r.data),
+        settings: { ...defaults.settings, ...(s.data?.data || {}) },
+      }
+      synced.current = loaded
+      setState(loaded)
+    })()
+    return () => { live = false }
+  }, [user.id])
+
+  useEffect(() => {
+    if (!state || state.error || state === synced.current) return
+    setSyncState('saving')
+    clearTimeout(timer.current)
+    timer.current = setTimeout(async () => {
+      const prev = synced.current
+      try {
+        await sync(prev, state)
+        synced.current = state
+        setSyncState('saved')
+      } catch (e) {
+        console.error(e)
+        setSyncState('error')
+      }
+    }, 500)
   }, [state])
+
+  useEffect(() => {
+    const warn = (e) => { if (syncState === 'saving') { e.preventDefault(); e.returnValue = '' } }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [syncState])
 
   const addLeads = useCallback((list) => setState((s) => ({ ...s, leads: [...list.map((l) => newLead(l)), ...s.leads] })), [])
   const updateLead = useCallback((id, patch) =>
@@ -102,10 +174,33 @@ export function StoreProvider({ children }) {
     setState((s) => ({ ...s, docs: s.docs.some((d) => d.id === doc.id) ? s.docs.map((d) => (d.id === doc.id ? doc : d)) : [doc, ...s.docs] })), [])
   const deleteDoc = useCallback((id) => setState((s) => ({ ...s, docs: s.docs.filter((d) => d.id !== id) })), [])
   const updateSettings = useCallback((patch) => setState((s) => ({ ...s, settings: { ...s.settings, ...patch } })), [])
-  const replaceAll = useCallback((d) => setState({ ...defaults, ...d, settings: { ...defaults.settings, ...d.settings } }), [])
+  const retrySync = useCallback(() => setState((s) => ({ ...s })), [])
+  const replaceAll = useCallback((d) => setState((s) => ({
+    ...s,
+    leads: (d.leads || []).map((l) => newLead(l)),
+    docs: [...(d.docs || [])],
+    settings: { ...defaults.settings, ...d.settings },
+  })), [])
+
+  const legacy = (() => {
+    try { const d = JSON.parse(localStorage.getItem(LEGACY_KEY)); return d?.leads?.length || d?.docs?.length ? d : null } catch { return null }
+  })()
+  const importLegacy = useCallback(() => {
+    if (!legacy) return
+    setState((s) => ({
+      ...s,
+      leads: [...legacy.leads.map((l) => newLead(l)).filter((l) => !s.leads.some((x) => x.id === l.id)), ...s.leads],
+      docs: [...(legacy.docs || []).filter((d) => !s.docs.some((x) => x.id === d.id)), ...s.docs],
+      settings: { ...s.settings, ...legacy.settings },
+    }))
+    try { localStorage.removeItem(LEGACY_KEY) } catch {}
+  }, [legacy])
+
+  if (!state) return <div className="boot"><Loader2 className="spin" size={20} /></div>
+  if (state.error) return <div className="boot"><div className="note">Could not load your data: {state.error}<br />Did you run <code>supabase/migrations/0001_init.sql</code>?</div></div>
 
   return (
-    <Ctx.Provider value={{ ...state, addLeads, updateLead, deleteLeads, logActivity, saveDoc, deleteDoc, updateSettings, replaceAll }}>
+    <Ctx.Provider value={{ ...state, user, syncState, legacy, importLegacy, retrySync, addLeads, updateLead, deleteLeads, logActivity, saveDoc, deleteDoc, updateSettings, replaceAll }}>
       {children}
     </Ctx.Provider>
   )
