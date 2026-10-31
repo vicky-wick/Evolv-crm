@@ -379,3 +379,23 @@ code { font-size: 12px; background: var(--accent-soft); padding: 1px 5px; border
   .items-t td:nth-child(3)::before { content: 'Rate'; }
   .items-t td:last-child { align-self: end; }
 }
+
+/* Landing animated background: monochrome vector lines and nodes */
+.land { position: relative; isolation: isolate; }
+.land-bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; color: var(--text); contain: strict; }
+.land-bg::after { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse 85% 70% at 50% 35%, transparent 25%, var(--bg) 80%); }
+.land-bg svg { position: absolute; inset: -10% -10%; width: 120%; height: 120%; }
+.land-bg .wave { fill: none; stroke: currentColor; stroke-width: 1; opacity: .14; }
+.land-bg .waves { animation: wave-sway 20s ease-in-out infinite alternate; will-change: transform; }
+.land-bg .flow { fill: none; stroke: currentColor; stroke-width: 1.5; opacity: .55; stroke-dasharray: 3 140; animation: flow 9s linear infinite; }
+.land-bg .flow:nth-of-type(2n) { animation-duration: 13s; }
+.land-bg .node { fill: currentColor; opacity: .35; animation: pulse 4s ease-in-out infinite; }
+.land-bg .node:nth-of-type(3n) { animation-delay: -1.5s; }
+.land-bg .node:nth-of-type(3n+1) { animation-delay: -3s; }
+.land-bg .link { stroke: currentColor; stroke-width: .8; opacity: .12; }
+@keyframes wave-sway { to { transform: translateY(26px); } }
+@keyframes flow { to { stroke-dashoffset: -284; } }
+@keyframes pulse { 50% { opacity: .6; } }
+@media (prefers-reduced-motion: reduce) { .land-bg * { animation: none !important; } }
+.land-nav { background: color-mix(in srgb, var(--bg) 70%, transparent); }
+.land-foot { background: transparent; }

@@ -16,11 +16,36 @@ const STEPS = [
   ['Close & deliver', 'Send a quote, invoice the client and track the build to launch.'],
 ]
 
+// Background vector: contour waves, a few with light pulses running along them, and a sparse node network.
+const W = 1440, H = 900
+const WAVES = Array.from({ length: 16 }, (_, i) => {
+  const y = 60 + i * 52, a = 26 + (i % 4) * 10, ph = i * 0.7
+  let d = `M -40 ${y}`
+  for (let x = -40; x <= W + 40; x += 40) d += ` L ${x} ${(y + Math.sin(x / 210 + ph) * a + Math.sin(x / 90 + ph * 2) * 6).toFixed(1)}`
+  return d
+})
+const NODES = Array.from({ length: 22 }, (_, i) => [(i * 397) % W, 80 + ((i * 251) % (H - 160))])
+const LINKS = NODES.flatMap((a, i) => NODES.slice(i + 1).filter((b) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 260).map((b) => [a, b]))
+
+function LandBg() {
+  return (
+    <div className="land-bg" aria-hidden="true">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice">
+        <g className="waves">{WAVES.map((d, i) => <path key={i} className="wave" d={d} />)}</g>
+        {WAVES.filter((_, i) => i % 3 === 1).map((d, i) => <path key={'f' + i} className="flow" d={d} style={{ animationDelay: `${-i * 2.3}s` }} />)}
+        {LINKS.map(([a, b], i) => <line key={'l' + i} className="link" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} />)}
+        {NODES.map(([x, y], i) => <circle key={'n' + i} className="node" cx={x} cy={y} r={i % 4 ? 1.8 : 2.8} />)}
+      </svg>
+    </div>
+  )
+}
+
 const up = (i = 0) => ({ initial: { opacity: 0, y: 14 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true }, transition: { duration: 0.4, delay: i * 0.06 } })
 
 export default function Landing() {
   return (
     <div className="land">
+      <LandBg />
       <header className="land-nav">
         <div className="brand" style={{ padding: 0 }}><div className="logo">E</div>EVOLV CRM</div>
         <nav className="row land-links">
